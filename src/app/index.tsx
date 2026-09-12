@@ -1,98 +1,85 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, StyleSheet, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PanGestureHandler, PanGestureHandlerGestureEvent, State } from 'react-native-gesture-handler';
+import { useAppTheme } from '../core/theme/ThemeContext';
+import { TopHeader } from '../shared/components/TopHeader';
+import { DailySessionDots } from '../features/session-log/components/DailySessionDots';
+import { CountdownDisplay } from '../features/timer/components/CountdownDisplay';
+import { TimerProgressBar } from '../features/timer/components/TimerProgressBar';
+import { SoundPickerPill } from '../features/ambient/components/SoundPickerPill';
+import { useAmbient } from '../features/ambient/state/useAmbient';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+export default function MonoFocusScreen() {
+  const { colors, isDark } = useAppTheme();
+  const { nextSound, prevSound } = useAmbient();
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+  // Full-screen horizontal swipe gesture to cycle ambient sounds
+  const onHorizontalSwipe = (event: PanGestureHandlerGestureEvent) => {
+    if (event.nativeEvent.state === State.END) {
+      const { translationX, velocityX } = event.nativeEvent;
+      if (translationX < -50 || velocityX < -500) {
+        nextSound();
+      } else if (translationX > 50 || velocityX > 500) {
+        prevSound();
+      }
+    }
+  };
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={colors.background}
+      />
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+      <PanGestureHandler onHandlerStateChange={onHorizontalSwipe}>
+        <View style={styles.container}>
+          {/* Top Section */}
+          <View style={styles.topSection}>
+            <TopHeader />
+            <DailySessionDots />
+          </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+          {/* Center Main Countdown Dial */}
+          <View style={styles.centerSection}>
+            <CountdownDisplay />
+            <TimerProgressBar />
+          </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+          {/* Bottom Ambient Soundscape Section */}
+          <View style={styles.bottomSection}>
+            <SoundPickerPill />
+          </View>
+        </View>
+      </PanGestureHandler>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
   safeArea: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
+  container: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
   },
-  title: {
-    textAlign: 'center',
+  topSection: {
+    width: '100%',
+    alignItems: 'center',
   },
-  code: {
-    textTransform: 'uppercase',
+  centerSection: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  bottomSection: {
+    width: '100%',
+    alignItems: 'center',
+    paddingBottom: 8,
   },
 });
