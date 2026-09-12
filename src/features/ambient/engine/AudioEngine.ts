@@ -1,10 +1,10 @@
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, AudioPlayer } from 'expo-audio';
 import { SOUNDSCAPE_PRESETS, SoundscapeId, COMPLETION_BELL_SOURCE } from '../presets';
 import { TIMER_CONFIG } from '../../../core/constants/config';
 
 class AudioEngine {
-  private ambientSound: Audio.Sound | null = null;
-  private bellSound: Audio.Sound | null = null;
+  private ambientPlayer: AudioPlayer | null = null;
+  private bellPlayer: AudioPlayer | null = null;
   private currentPresetId: SoundscapeId = 'rain';
   private targetVolume: number = 0.8;
   private fadeInterval: ReturnType<typeof setInterval> | null = null;
@@ -13,16 +13,14 @@ class AudioEngine {
   public async initialize() {
     if (this.isInitialized) return;
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        shouldPlayInBackground: true,
+        interruptionMode: 'mixWithOthers',
       });
       this.isInitialized = true;
     } catch (e) {
-      console.warn('AudioEngine initialization error:', e);
+      console.warn('AudioEngine initialize notice:', e);
     }
   }
 
@@ -30,14 +28,14 @@ class AudioEngine {
     this.currentPresetId = id;
     const preset = SOUNDSCAPE_PRESETS.find((p) => p.id === id);
 
-    if (this.ambientSound) {
+    if (this.ambientPlayer) {
       try {
-        await this.ambientSound.stopAsync();
-        await this.ambientSound.unloadAsync();
+        this.ambientPlayer.pause();
+        this.ambientPlayer.remove();
       } catch {
-        // Ignore cleanup errors
+        // Ignore cleanup
       }
-      this.ambientSound = null;
+      this.ambientPlayer = null;
     }
 
     if (!preset || !preset.source) {
@@ -45,32 +43,27 @@ class AudioEngine {
     }
 
     try {
-      const { sound } = await Audio.Sound.createAsync(
-        preset.source,
-        {
-          isLooping: true,
-          volume: 0,
-          shouldPlay: false,
-        }
-      );
-      this.ambientSound = sound;
+      const player = createAudioPlayer(preset.source);
+      player.loop = true;
+      player.volume = 0;
+      this.ambientPlayer = player;
     } catch (e) {
-      console.warn('Error loading soundscape:', e);
+      console.warn('Error loading soundscape player:', e);
     }
   }
 
   public async startPlaying(fadeInDurationMs = TIMER_CONFIG.FADE_IN_DURATION_MS) {
-    if (!this.ambientSound) {
+    if (!this.ambientPlayer) {
       if (this.currentPresetId !== 'silence') {
         await this.loadSoundscape(this.currentPresetId);
       }
     }
 
-    if (!this.ambientSound) return;
+    if (!this.ambientPlayer) return;
 
     try {
-      await this.ambientSound.setVolumeAsync(0);
-      await this.ambientSound.playAsync();
+      this.ambientPlayer.volume = 0;
+      this.ambientPlayer.play();
       this.fadeVolume(this.targetVolume, fadeInDurationMs);
     } catch (e) {
       console.warn('Error starting playback:', e);
@@ -78,12 +71,12 @@ class AudioEngine {
   }
 
   public async stopPlaying(fadeOutDurationMs = TIMER_CONFIG.FADE_OUT_DURATION_MS) {
-    if (!this.ambientSound) return;
+    if (!this.ambientPlayer) return;
 
-    this.fadeVolume(0, fadeOutDurationMs, async () => {
+    this.fadeVolume(0, fadeOutDurationMs, () => {
       try {
-        if (this.ambientSound) {
-          await this.ambientSound.pauseAsync();
+        if (this.ambientPlayer) {
+          this.ambientPlayer.pause();
         }
       } catch {
         // Ignore
@@ -93,18 +86,18 @@ class AudioEngine {
 
   public async playCompletionBell() {
     try {
-      if (this.bellSound) {
-        await this.bellSound.unloadAsync();
-      }
-      const { sound } = await Audio.Sound.createAsync(
-        COMPLETION_BELL_SOURCE,
-        {
-          volume: 1.0,
-          shouldPlay: true,
-          isLooping: false,
+      if (this.bellPlayer) {
+        try {
+          this.bellPlayer.remove();
+        } catch {
+          // Ignore
         }
-      );
-      this.bellSound = sound;
+      }
+      const bell = createAudioPlayer(COMPLETION_BELL_SOURCE);
+      bell.loop = false;
+      bell.volume = 1.0;
+      bell.play();
+      this.bellPlayer = bell;
     } catch (e) {
       console.warn('Error playing completion bell:', e);
     }
@@ -116,8 +109,10 @@ class AudioEngine {
       this.fadeInterval = null;
     }
 
-    if (!this.ambientSound || durationMs <= 0) {
-      this.ambientSound?.setVolumeAsync(toVolume);
+    if (!this.ambientPlayer || durationMs <= 0) {
+      if (this.ambientPlayer) {
+        this.ambientPlayer.volume = toVolume;
+      }
       onComplete?.();
       return;
     }
@@ -125,36 +120,32 @@ class AudioEngine {
     const steps = 25;
     const stepInterval = durationMs / steps;
     let currentStep = 0;
+    const startVolume = this.ambientPlayer.volume;
+    const volumeDelta = toVolume - startVolume;
 
-    this.ambientSound.getStatusAsync().then((status) => {
-      if (!status.isLoaded) return;
-      const startVolume = status.volume;
-      const volumeDelta = toVolume - startVolume;
+    this.fadeInterval = setInterval(() => {
+      currentStep++;
+      const progress = currentStep / steps;
+      // Exponential perceptual volume easing
+      const easedProgress = Math.sin((progress * Math.PI) / 2);
+      const nextVolume = Math.max(0, Math.min(1, startVolume + volumeDelta * easedProgress));
 
-      this.fadeInterval = setInterval(async () => {
-        currentStep++;
-        const progress = currentStep / steps;
-        // Exponential volume curve for natural human auditory perception
-        const easedProgress = Math.sin((progress * Math.PI) / 2);
-        const nextVolume = Math.max(0, Math.min(1, startVolume + volumeDelta * easedProgress));
-
-        try {
-          if (this.ambientSound) {
-            await this.ambientSound.setVolumeAsync(nextVolume);
-          }
-        } catch {
-          // Ignore
+      try {
+        if (this.ambientPlayer) {
+          this.ambientPlayer.volume = nextVolume;
         }
+      } catch {
+        // Ignore
+      }
 
-        if (currentStep >= steps) {
-          if (this.fadeInterval) {
-            clearInterval(this.fadeInterval);
-            this.fadeInterval = null;
-          }
-          onComplete?.();
+      if (currentStep >= steps) {
+        if (this.fadeInterval) {
+          clearInterval(this.fadeInterval);
+          this.fadeInterval = null;
         }
-      }, stepInterval);
-    });
+        onComplete?.();
+      }
+    }, stepInterval);
   }
 
   public getCurrentSoundscapeId(): SoundscapeId {

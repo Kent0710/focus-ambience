@@ -1,12 +1,10 @@
-import { AVPlaybackSource } from 'expo-av';
-
 export type SoundscapeId = 'rain' | 'white-noise' | 'brown-noise' | 'cafe' | 'silence';
 
 export interface SoundscapePreset {
   id: SoundscapeId;
   label: string;
   subLabel: string;
-  source: AVPlaybackSource | null;
+  source: any;
 }
 
 export const SOUNDSCAPE_PRESETS: SoundscapePreset[] = [

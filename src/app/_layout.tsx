@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Slot } from 'expo-router';
+import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import { StyleSheet } from 'react-native';
@@ -20,7 +20,7 @@ export default function RootLayout() {
       <ThemeProvider>
         <AmbientProvider>
           <TimerProvider>
-            <Slot />
+            <Stack screenOptions={{ headerShown: false }} />
           </TimerProvider>
         </AmbientProvider>
       </ThemeProvider>
